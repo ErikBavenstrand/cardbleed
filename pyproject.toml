@@ -1,6 +1,6 @@
 [project]
 name = "cardbleed"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Extend the borders of card scans for printing — continues the existing border pattern without re-encoding the original image data"
 readme = "README.md"
 license = "MIT"
@@ -36,6 +36,9 @@ cardbleed = "cardbleed:cli"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/cardbleed/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cardbleed"]
