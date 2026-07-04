@@ -157,11 +157,16 @@ def _pattern_residual(
         depth = phase + (dshift[passes] % cnt) * pd
         how = f"continuing {pd}px outward period (r={cd:.2f})"
     else:
-        period = max(2 * K - 2, 1)
+        # shrink the mirror span so several passes (and thus several
+        # randomized offsets) fit within the extension — otherwise a small
+        # extension stays inside the first, deliberately offset-free pass
+        # and comes out as a pure mirror reflection
+        ke = min(K, max(4, n_total // 3 + 2))
+        period = max(2 * ke - 2, 1)
         phase = (j - 1) % period
         depth = np.minimum(phase, period - phase).astype(np.intp)  # mirror wave
-        passes = (j - 1) // max(K - 1, 1)
-        how = "mirror continuation"
+        passes = (j - 1) // max(ke - 1, 1)
+        how = f"mirror continuation ({ke}px span)"
 
     n_pass = int(passes.max()) + 1
     if pe:
