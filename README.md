@@ -14,7 +14,7 @@ around the untouched originals.
 <table>
 <tr>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card.png" width="180"><br><sub>input, 400×550</sub></td>
-<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_smart.png" width="200"><br><sub>output, <code>cardbleed demo_card.png -e 24</code></sub></td>
+<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_pattern.png" width="200"><br><sub>output, <code>cardbleed demo_card.png -e 24</code></sub></td>
 </tr>
 </table>
 
@@ -56,15 +56,15 @@ mirror, soft.
 
 <img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_detail_modes.png" width="740">
 
-- `--mode smart` (default) resamples the border band stochastically. Speckle
-  is re-randomized in both directions, so nothing streaks or repeats, at the
-  cost of some texture structure.
-- `--mode pattern` keeps structure intact: every output line is a real
-  contiguous border line, and each outward pass is shifted along the edge by
-  a random offset. If the border has a repeating pattern, detected by
+- `--mode pattern` (default) keeps structure intact: every output line is a
+  real contiguous border line, and each outward pass is shifted along the
+  edge by a random offset. If the border has a repeating pattern, detected by
   autocorrelation, the continuation and the offsets snap to its period so the
-  pattern stays in phase. This is usually the best choice for holo borders.
-  With `--shuffle 0` it degrades to a plain deterministic mirror.
+  pattern stays in phase. With `--shuffle 0` it degrades to a plain
+  deterministic mirror.
+- `--mode smart` resamples the border band stochastically. Speckle is
+  re-randomized in both directions, so nothing streaks or repeats, at the
+  cost of some texture structure.
 - `--mode naive` replicates the outermost line straight outward (plus noise
   and smudge). Mostly useful as a baseline; it streaks on textured borders.
 
@@ -72,7 +72,7 @@ The gallery variants above, for reference:
 
 <table>
 <tr>
-<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_pattern.png" width="180"><br><sub><code>--mode pattern</code></sub></td>
+<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_smart.png" width="180"><br><sub><code>--mode smart</code></sub></td>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_naive.png" width="180"><br><sub><code>--mode naive</code></sub></td>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_soft.png" width="180"><br><sub><code>--smudge 2.5 --noise 0.8</code></sub></td>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_smart_compare.png" width="180"><br><sub><code>--compare</code> sheet</sub></td>
@@ -100,7 +100,7 @@ still exactly what you asked for.
 | `-e, --extend` | `16` | Amount per edge, px or mm (`2.5mm`); per-edge overrides via `--left` etc. |
 | `--fix-aspect` | off | Pad the short axis to the card ratio (`--card-size`, default `63x88` mm) before extending |
 | `--target` | none | Pad to an exact final size instead, e.g. `69x94mm` |
-| `--mode` | `smart` | `smart`, `pattern`, or `naive` (see above) |
+| `--mode` | `pattern` | `pattern`, `smart`, or `naive` (see above) |
 | `-k, --sample` | `12` | Band depth to sample from; clamped at detected inner border structure |
 | `--trim` | `auto` | Scanner-bloom lines to cut per edge |
 | `--shuffle` | `48` | How far along the edge texture may be borrowed from |

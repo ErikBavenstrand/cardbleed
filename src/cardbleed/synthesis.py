@@ -36,7 +36,7 @@ _SIDE_ROT = {"left": 0, "top": 1, "right": 2, "bottom": 3}  # CCW turns to face 
 
 @dataclass
 class Params:
-    mode: str = "smart"
+    mode: str = "pattern"
     sample: int = 12
     trim: str = "auto"  # "auto" or an integer as string
     jitter: float = 0.85

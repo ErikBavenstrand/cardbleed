@@ -121,7 +121,7 @@ click.rich_click.OPTION_GROUPS = {
 @click.option(
     "--mode",
     type=click.Choice(["smart", "pattern", "naive"]),
-    default="smart",
+    default="pattern",
     show_default=True,
     help="[cyan]smart[/]: stochastic band resampling · "
     "[cyan]pattern[/]: structure-preserving randomized-mirror "
