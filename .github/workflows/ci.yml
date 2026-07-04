@@ -6,6 +6,15 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --group dev ruff check src examples
+      - run: uv run --group dev ruff format --check src examples
+      - run: uv run --group dev pyright
+
   selfcheck:
     runs-on: ${{ matrix.os }}
     strategy:

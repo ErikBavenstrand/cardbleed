@@ -32,7 +32,7 @@ for _ in range(2600):
         continue
     r = int(rng.integers(1, 3))
     color = rng.uniform(120, 255, 3)
-    card[max(0, y - r):y + r, max(0, x - r):x + r] += color * rng.uniform(0.3, 0.9)
+    card[max(0, y - r) : y + r, max(0, x - r) : x + r] += color * rng.uniform(0.3, 0.9)
 
 # bright inner frame line, then a plain "art" area with simple shapes
 inner = depth >= BORDER
@@ -40,7 +40,7 @@ card[(depth >= BORDER) & (depth < BORDER + 2)] = (215, 220, 225)
 art = depth >= BORDER + 2
 card[art] = np.array([235, 230, 215]) - (yy[art] / H * 40)[..., None]
 cy, cx = H * 0.42, W * 0.5
-disc = (yy - cy) ** 2 + (xx - cx) ** 2 < 90 ** 2
+disc = (yy - cy) ** 2 + (xx - cx) ** 2 < 90**2
 card[disc & art] = (200, 120, 90)
 ring = np.abs(np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2) - 120) < 6
 card[ring & art] = (100, 110, 160)

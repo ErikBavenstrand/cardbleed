@@ -14,6 +14,7 @@ format-agnostic (it only ever sees an (H, W, C) uint8 array).
 
 from __future__ import annotations
 
+import contextlib
 import math
 from pathlib import Path
 
@@ -30,35 +31,41 @@ FORMATS = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp"}
 # loading
 # --------------------------------------------------------------------------
 
+
 def load_pixels(path: Path, fmt: str, notes: list[str]):
     """Decode to (H,W,C) uint8 + a dict of metadata for the writer."""
     if fmt == "jpeg":
         import jpeglib
+
         dct = jpeglib.read_dct(str(path))
         cs = str(getattr(dct, "jpeg_color_space", ""))
         if dct.num_components == 3 and "YCbCr" not in cs:
-            raise FileError(f"JPEG color space {cs or 'unknown'} not supported "
-                            "(only YCbCr and grayscale)")
+            raise FileError(
+                f"JPEG color space {cs or 'unknown'} not supported "
+                "(only YCbCr and grayscale)"
+            )
         spat = jpeglib.read_spatial(str(path))
         arr = np.asarray(spat.spatial)
         if arr.ndim == 2:
             arr = arr[:, :, None]
         if arr.shape[2] not in (1, 3):
-            raise FileError(f"unsupported JPEG color layout ({arr.shape[2]} "
-                            "channels; CMYK/YCCK not supported)")
+            raise FileError(
+                f"unsupported JPEG color layout ({arr.shape[2]} "
+                "channels; CMYK/YCCK not supported)"
+            )
         return arr, {"dct": dct}
 
     im = Image.open(path)
     if fmt == "webp" and getattr(im, "is_animated", False):
         raise FileError("animated WebP not supported")
-    meta = {"icc_profile": im.info.get("icc_profile"),
-            "exif": im.info.get("exif")}
+    meta = {"icc_profile": im.info.get("icc_profile"), "exif": im.info.get("exif")}
     if im.mode == "P":
         im = im.convert("RGBA" if "transparency" in im.info else "RGB")
         notes.append(f"palette image promoted to {im.mode} (pixel values identical)")
     if im.mode in ("I", "I;16", "I;16B", "I;16L", "F"):
-        raise FileError(f"{im.mode} (high bit depth) not supported; "
-                        "convert to 8-bit first")
+        raise FileError(
+            f"{im.mode} (high bit depth) not supported; convert to 8-bit first"
+        )
     if im.mode not in ("L", "LA", "RGB", "RGBA"):
         im = im.convert("RGB")
         notes.append("converted to RGB")
@@ -73,8 +80,10 @@ def load_pixels(path: Path, fmt: str, notes: list[str]):
 # PNG / WebP saving (lossless)
 # --------------------------------------------------------------------------
 
-def save_png_webp(arr: np.ndarray, meta: dict, out: Path, fmt: str,
-                  dpi: tuple[float, float]) -> None:
+
+def save_png_webp(
+    arr: np.ndarray, meta: dict, out: Path, fmt: str, dpi: tuple[float, float]
+) -> None:
     mode = meta.get("mode", "RGB")
     im = Image.fromarray(arr[:, :, 0] if arr.shape[2] == 1 else arr, mode=mode)
     kw = {}
@@ -124,8 +133,9 @@ def _subsample(plane: np.ndarray, fx: int, fy: int) -> np.ndarray:
         return plane
     h, w = plane.shape
     plane = np.pad(plane, ((0, (-h) % fy), (0, (-w) % fx)), mode="edge")
-    return plane.reshape(plane.shape[0] // fy, fy,
-                         plane.shape[1] // fx, fx).mean(axis=(1, 3))
+    return plane.reshape(plane.shape[0] // fy, fy, plane.shape[1] // fx, fx).mean(
+        axis=(1, 3)
+    )
 
 
 def jpeg_factors(dct, ci: int) -> tuple[int, int]:
@@ -144,10 +154,14 @@ def jpeg_mcu(dct) -> tuple[int, int]:
     return 8 * int(sf[:, 1].max()), 8 * int(sf[:, 0].max())
 
 
-def jpeg_paste_box(dct, ci: int, size0: tuple[int, int],
-                   extents: tuple[int, int, int, int],
-                   halo_overwrite: bool, trim_px: int = TRIM_CAP,
-                   ) -> tuple[slice, slice, int, int]:
+def jpeg_paste_box(
+    dct,
+    ci: int,
+    size0: tuple[int, int],
+    extents: tuple[int, int, int, int],
+    halo_overwrite: bool,
+    trim_px: int = TRIM_CAP,
+) -> tuple[slice, slice, int, int]:
     """Block region of component ci that stays bit-exact.
 
     Returns (rows, cols, off_v, off_h): slices into the NEW block grid and the
@@ -159,7 +173,7 @@ def jpeg_paste_box(dct, ci: int, size0: tuple[int, int],
     comps = [dct.Y, dct.Cb, dct.Cr][ci] if dct.Cb is not None else dct.Y
     ov, oh = comps.shape[:2]
     off_v, off_h = (T // fy) // 8, (L // fx) // 8
-    ch0, cw0 = -(-H0 // fy), -(-W0 // fx)      # component pixel dims (original)
+    ch0, cw0 = -(-H0 // fy), -(-W0 // fx)  # component pixel dims (original)
     lo_v, lo_h = off_v, off_h
     hi_v, hi_h = off_v + ov, off_h + oh
     # straddling last block row/col contains encoder padding that would become
@@ -186,21 +200,30 @@ def jpeg_paste_box(dct, ci: int, size0: tuple[int, int],
     return slice(lo_v, max(lo_v, hi_v)), slice(lo_h, max(lo_h, hi_h)), off_v, off_h
 
 
-def save_jpeg(arr: np.ndarray, meta: dict, out: Path, size0: tuple[int, int],
-              extents: tuple[int, int, int, int], halo_overwrite: bool,
-              trim_px: int = TRIM_CAP) -> None:
+def save_jpeg(
+    arr: np.ndarray,
+    meta: dict,
+    out: Path,
+    size0: tuple[int, int],
+    extents: tuple[int, int, int, int],
+    halo_overwrite: bool,
+    trim_px: int = TRIM_CAP,
+) -> None:
     import jpeglib
+
     dct = meta["dct"]
-    H1, W1, C = arr.shape
+    H1, W1, _C = arr.shape
     ncomp = dct.num_components
     f = arr.astype(np.float32)
     if ncomp == 1:
         planes = [f[:, :, 0]]
     else:
         R, G, B = f[:, :, 0], f[:, :, 1], f[:, :, 2]
-        planes = [0.299 * R + 0.587 * G + 0.114 * B,
-                  128.0 - 0.168735892 * R - 0.331264108 * G + 0.5 * B,
-                  128.0 + 0.5 * R - 0.418687589 * G - 0.081312411 * B]
+        planes = [
+            0.299 * R + 0.587 * G + 0.114 * B,
+            128.0 - 0.168735892 * R - 0.331264108 * G + 0.5 * B,
+            128.0 + 0.5 * R - 0.418687589 * G - 0.081312411 * B,
+        ]
 
     orig = [dct.Y, dct.Cb, dct.Cr][:ncomp]
     comps = []
@@ -209,21 +232,26 @@ def save_jpeg(arr: np.ndarray, meta: dict, out: Path, size0: tuple[int, int],
         qt = dct.get_component_qt(ci)
         plane = _subsample(planes[ci], fx, fy)
         blocks = _plane_to_qblocks(plane, np.asarray(qt, dtype=np.float64))
-        rows, cols, off_v, off_h = jpeg_paste_box(dct, ci, size0, extents,
-                                                  halo_overwrite, trim_px)
+        rows, cols, off_v, off_h = jpeg_paste_box(
+            dct, ci, size0, extents, halo_overwrite, trim_px
+        )
         src = orig[ci]
-        blocks[rows, cols] = src[rows.start - off_v: rows.stop - off_v,
-                                 cols.start - off_h: cols.stop - off_h]
+        blocks[rows, cols] = src[
+            rows.start - off_v : rows.stop - off_v,
+            cols.start - off_h : cols.stop - off_h,
+        ]
         comps.append(np.ascontiguousarray(blocks))
 
-    new = jpeglib.from_dct(Y=comps[0],
-                           Cb=comps[1] if ncomp > 1 else None,
-                           Cr=comps[2] if ncomp > 1 else None,
-                           qt=dct.qt,
-                           quant_tbl_no=list(np.asarray(dct.quant_tbl_no)))
+    # jpeglib's signature declares Cb/Cr as required arrays, but None is the
+    # documented value for grayscale files
+    new = jpeglib.from_dct(
+        Y=comps[0],
+        Cb=comps[1] if ncomp > 1 else None,  # pyright: ignore[reportArgumentType]
+        Cr=comps[2] if ncomp > 1 else None,  # pyright: ignore[reportArgumentType]
+        qt=dct.qt,
+        quant_tbl_no=list(np.asarray(dct.quant_tbl_no)),
+    )
     new.width, new.height = W1, H1
-    try:
+    with contextlib.suppress(Exception):
         new.markers = dct.markers
-    except Exception:
-        pass
     new.write_dct(str(out))

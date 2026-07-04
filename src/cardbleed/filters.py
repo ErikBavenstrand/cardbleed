@@ -50,8 +50,13 @@ def highpass_std(region: np.ndarray) -> np.ndarray:
     return (region.astype(np.float32) - box_blur3(region)).std(axis=(0, 1))
 
 
-def smooth_field(rng: np.random.Generator, shape: tuple[int, int],
-                 sigma: float, *, standardize: bool = False) -> np.ndarray:
+def smooth_field(
+    rng: np.random.Generator,
+    shape: tuple[int, int],
+    sigma: float,
+    *,
+    standardize: bool = False,
+) -> np.ndarray:
     """Random field blurred to a given correlation length.
 
     Standardized fields have mean 0 / std 1 (for signed displacements);

@@ -67,25 +67,31 @@ so sampling never crosses it).
 <tr>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card.png" width="170"><br><sub><b>input</b> (400×550)</sub></td>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_smart.png" width="190"><br><sub><b>smart</b> (default)<br><code>-e 24</code></sub></td>
-<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_naive.png" width="190"><br><sub><b>naive</b><br><code>-e 24 --mode naive</code></sub></td>
+<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_pattern.png" width="190"><br><sub><b>pattern</b><br><code>-e 24 --mode pattern</code></sub></td>
 </tr>
 <tr>
-<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_mirror.png" width="190"><br><sub><b>mirror</b> (deterministic)<br><code>--jitter 0 --jitter-cross 0 --shuffle 0 --noise 0</code></sub></td>
+<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_naive.png" width="190"><br><sub><b>naive</b><br><code>-e 24 --mode naive</code></sub></td>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_soft.png" width="190"><br><sub><b>soft</b><br><code>--smudge 2.5 --noise 0.8</code></sub></td>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_smart_compare.png" width="190"><br><sub><b>QA sheet</b><br><code>--compare</code></sub></td>
 </tr>
 </table>
 
-Zoomed left-edge detail (new border + original border) — **smart · naive ·
-mirror · soft**:
+Zoomed left-edge detail (new border + original border) — **smart · pattern ·
+naive · mirror · soft**:
 
-<p align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_detail_modes.png" width="620"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_detail_modes.png" width="760"></p>
 
-Smart re-randomizes the speckle in *both* directions (long-range `--shuffle`
-borrows texture from elsewhere on the edge, so flecks neither streak outward
-nor near-repeat) while continuing the tone gradient. Naive shows the streaking
-that plain edge replication produces. Mirror is the fully deterministic
-pattern continuation. Soft trades texture for smoothness.
+**Smart** re-randomizes the speckle in *both* directions (long-range
+`--shuffle` borrows texture from elsewhere on the edge, so flecks neither
+streak outward nor near-repeat) while continuing the tone gradient.
+**Pattern** is the structure-preserving choice for holo borders: a
+"randomized mirror" where every output line is a real contiguous border line,
+each outward pass shifted along the edge by a random offset — and when the
+border has a detectable repeating pattern (found by autocorrelation, nothing
+hardcoded), the continuation and offsets snap to its period so the pattern
+stays phase-aligned. **Naive** shows the streaking that plain edge
+replication produces; **mirror** (`--mode pattern --shuffle 0`) is the fully
+deterministic continuation; **soft** trades texture for smoothness.
 
 ## Lossless guarantees
 
@@ -107,8 +113,8 @@ is shifted between opposite edges so final dimensions stay exact.
 | `-e, --extend` | `16` | Border per edge, px or mm (`2.5mm`). Per-edge: `--left/--right/--top/--bottom` |
 | `--fix-aspect` | off | Pad the short axis to the exact card ratio (`--card-size`, default `63x88` mm) first |
 | `--target` | — | Pad to an exact final size instead, e.g. `69x94mm` |
-| `--mode` | `smart` | `smart` (tone + texture synthesis) or `naive` (replicate + noise + smudge) |
-| `-k, --sample` | `8` | Border pixels to sample patterns from (auto-clamped) |
+| `--mode` | `smart` | `smart` (stochastic), `pattern` (structure-preserving randomized mirror), `naive` (replicate) |
+| `-k, --sample` | `12` | Border pixels to sample patterns from (auto-clamped) |
 | `--trim` | `auto` | Scanner-bloom lines to cut per edge (auto-detected, max 3) |
 | `--jitter` / `--shuffle` | `0.85` / `48` | Depth randomness / long-range texture borrowing along the edge |
 | `--noise` / `--smudge` | `0.35` / `0.6` | Grain (matched to the border's own) / ramped blur |
@@ -137,6 +143,8 @@ line is an exact continuation of the edge.
 git clone https://github.com/ErikBavenstrand/cardbleed && cd cardbleed
 uv run cardbleed --selfcheck            # built-in assertion suite
 uv run cardbleed --selfcheck scan.png   # + deeper checks against a real scan
+uv run --group dev ruff check src       # lint (ruff)
+uv run --group dev pyright              # type check
 ```
 
 The package is laid out for extensibility: `synthesis.py` (border strategies),
