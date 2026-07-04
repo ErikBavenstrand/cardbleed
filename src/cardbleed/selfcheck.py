@@ -19,7 +19,7 @@ from rich.console import Console
 from .filters import box_blur3, highpass_std
 from .process import process_file
 from .sizing import resolve_extents
-from .synthesis import TRIM_CAP
+from .synthesis import TRIM_CAP, edge_geometry
 
 
 def _mk_args(base, **over):
@@ -36,13 +36,18 @@ def selfcheck(args) -> int:
     def check(name: str, ok: bool, detail: str = ""):
         results.append((name, bool(ok), detail))
         mark = "[green]✓ PASS[/]" if ok else "[red]✗ FAIL[/]"
-        console.print(f"  {mark}  {name}"
-                      + (f"  [dim]({detail})[/]" if detail else ""))
+        console.print(f"  {mark}  {name}" + (f"  [dim]({detail})[/]" if detail else ""))
 
     tmp = Path(tempfile.mkdtemp(prefix="cardbleed_check_"))
     console.print(f"[dim]selfcheck workspace: {tmp}[/]")
-    base = _mk_args(args, out_dir=str(tmp / "out"), force=True, compare=False,
-                    dry_run=False, suffix="_ext")
+    base = _mk_args(
+        args,
+        out_dir=str(tmp / "out"),
+        force=True,
+        compare=False,
+        dry_run=False,
+        suffix="_ext",
+    )
 
     # fixtures ---------------------------------------------------------------
     def bordered(w, h, border, inner, bw=24, noise_sigma=0.0):
@@ -59,8 +64,9 @@ def selfcheck(args) -> int:
     flat_p = tmp / "flat.png"
     Image.fromarray(bordered(300, 420, (255, 214, 0), (255, 255, 255))).save(flat_p)
     speck_p = tmp / "speckle.png"
-    Image.fromarray(bordered(300, 420, (180, 150, 90), (120, 120, 120),
-                             noise_sigma=25)).save(speck_p)
+    Image.fromarray(
+        bordered(300, 420, (180, 150, 90), (120, 120, 120), noise_sigma=25)
+    ).save(speck_p)
     grad_p = tmp / "grad.png"
     g = np.linspace(30, 220, 48)[:, None, None] * np.ones((48, 64, 3))
     Image.fromarray(g.astype(np.uint8)).save(grad_p)
@@ -74,17 +80,24 @@ def selfcheck(args) -> int:
 
     # A: geometry, px
     o = process_file(flat_p, _mk_args(base, extend="16"))
-    check("geometry px (+16 all edges)", Image.open(o).size == (332, 452),
-          f"{Image.open(o).size}")
+    check(
+        "geometry px (+16 all edges)",
+        Image.open(o).size == (332, 452),
+        f"{Image.open(o).size}",
+    )
 
     # B: orientation — extend top only on an asymmetric gradient
-    o = process_file(grad_p, _mk_args(base, top="8", left="0", right="0",
-                                      bottom="0", trim=0))
+    o = process_file(
+        grad_p, _mk_args(base, top="8", left="0", right="0", bottom="0", trim=0)
+    )
     ga = np.asarray(Image.open(o))
-    check("orientation (top-only)", ga.shape[:2] == (56, 64)
-          and np.array_equal(ga[8:], np.asarray(Image.open(grad_p)))
-          and 20 < ga[2].mean() < 90,
-          f"shape {ga.shape[:2]}, top mean {ga[2].mean():.0f}")
+    check(
+        "orientation (top-only)",
+        ga.shape[:2] == (56, 64)
+        and np.array_equal(ga[8:], np.asarray(Image.open(grad_p)))
+        and 20 < ga[2].mean() < 90,
+        f"shape {ga.shape[:2]}, top mean {ga[2].mean():.0f}",
+    )
 
     # C: interior identity, PNG (outside the auto-trim cap ring)
     if real_p is not None:
@@ -92,7 +105,7 @@ def selfcheck(args) -> int:
         o = process_file(real_p, _mk_args(base, extend="16"))
         outa = np.asarray(Image.open(o))
         t = TRIM_CAP
-        crop = outa[16 + t:16 + src.shape[0] - t, 16 + t:16 + src.shape[1] - t]
+        crop = outa[16 + t : 16 + src.shape[0] - t, 16 + t : 16 + src.shape[1] - t]
         check("interior identity PNG", np.array_equal(crop, src[t:-t, t:-t]))
 
         # D: determinism
@@ -103,37 +116,50 @@ def selfcheck(args) -> int:
         o = process_file(real_p, _mk_args(base, extend="2mm"))
         W0, H0 = src.shape[1], src.shape[0]
         exp = (W0 + 2 * round(2 * W0 / 63), H0 + 2 * round(2 * H0 / 88))
-        check("geometry mm", Image.open(o).size == exp,
-              f"{Image.open(o).size} vs {exp}")
+        check(
+            "geometry mm", Image.open(o).size == exp, f"{Image.open(o).size} vs {exp}"
+        )
 
         # F: geometry, target
         o = process_file(real_p, _mk_args(base, target="69x94mm"))
         exp = (round(69 * W0 / 63), round(94 * H0 / 88))
-        check("geometry target", Image.open(o).size == exp,
-              f"{Image.open(o).size} vs {exp}")
+        check(
+            "geometry target",
+            Image.open(o).size == exp,
+            f"{Image.open(o).size} vs {exp}",
+        )
 
         # G: DPI stamp
         got = Image.open(o).info.get("dpi", (0, 0))
         exp_dpi = (W0 / 63 * 25.4, H0 / 88 * 25.4)
-        check("DPI stamp", abs(got[0] - exp_dpi[0]) < 1.5 and
-              abs(got[1] - exp_dpi[1]) < 1.5, f"{got}")
+        check(
+            "DPI stamp",
+            abs(got[0] - exp_dpi[0]) < 1.5 and abs(got[1] - exp_dpi[1]) < 1.5,
+            f"{got}",
+        )
 
         # H: texture statistics + streaks + seam on a real textured scan
         # (fixed trim=1 so band positions are known)
-        o = process_file(real_p, _mk_args(base, extend="16", trim="1",
-                                          suffix="_ext_t1"))
+        o = process_file(
+            real_p, _mk_args(base, extend="16", trim="1", suffix="_ext_t1")
+        )
         outa = np.asarray(Image.open(o)).astype(np.float32)
         t, K = 1, 7
-        synth = outa[100:-100, :16]          # left extension, away from corners
-        band = outa[100:-100, 16 + t:16 + t + K]
+        synth = outa[100:-100, :16]  # left extension, away from corners
+        band = outa[100:-100, 16 + t : 16 + t + K]
         rs, rb = highpass_std(synth).mean(), highpass_std(band).mean()
-        check("texture stats (residual std ratio)",
-              0.5 <= rs / max(rb, 1e-6) <= 1.6,
-              f"ratio {rs / max(rb, 1e-6):.2f}")
+        check(
+            "texture stats (residual std ratio)",
+            0.5 <= rs / max(rb, 1e-6) <= 1.6,
+            f"ratio {rs / max(rb, 1e-6):.2f}",
+        )
         # the mirrored tone keeps the extension's mean near the band mean
         mean_d = abs(synth.mean(axis=(0, 1)) - band.mean(axis=(0, 1))).max()
-        check("texture stats (mean vs band within 8/255)", mean_d <= 8.0,
-              f"{mean_d:.1f}")
+        check(
+            "texture stats (mean vs band within 8/255)",
+            bool(mean_d <= 8.0),
+            f"{mean_d:.1f}",
+        )
 
         hp = synth - box_blur3(synth)
 
@@ -145,45 +171,68 @@ def selfcheck(args) -> int:
             return float((a * b).sum()) / max(den, 1e-6)
 
         hb = band - box_blur3(band)
-        check("no streaks (lag-3 autocorr)", lag3(hp.mean(axis=2)) <=
-              max(1.5 * abs(lag3(hb.mean(axis=2))), 0.35),
-              f"synth {lag3(hp.mean(axis=2)):.2f} vs band "
-              f"{lag3(hb.mean(axis=2)):.2f}")
+        check(
+            "no streaks (lag-3 autocorr)",
+            lag3(hp.mean(axis=2)) <= max(1.5 * abs(lag3(hb.mean(axis=2))), 0.35),
+            f"synth {lag3(hp.mean(axis=2)):.2f} vs band {lag3(hb.mean(axis=2)):.2f}",
+        )
 
         seam_x = 16 + t
         seam = np.abs(outa[:, seam_x - 1] - outa[:, seam_x]).mean()
-        adj = [np.abs(outa[:, x] - outa[:, x + 1]).mean()
-               for x in range(seam_x, seam_x + K - 1)]
-        check("seam step within texture", seam <= 1.5 * max(np.median(adj), 1.0),
-              f"seam {seam:.1f} vs band adj {np.median(adj):.1f}")
+        adj = [
+            np.abs(outa[:, x] - outa[:, x + 1]).mean()
+            for x in range(seam_x, seam_x + K - 1)
+        ]
+        check(
+            "seam step within texture",
+            bool(seam <= 1.5 * max(float(np.median(adj)), 1.0)),
+            f"seam {seam:.1f} vs band adj {np.median(adj):.1f}",
+        )
 
         # I/J: JPEG fixture — coefficient identity + decoded border sanity
         import jpeglib
 
         from .formats import jpeg_mcu, jpeg_paste_box
+
         jp = tmp / "real.jpg"
         Image.open(real_p).convert("RGB").save(jp, quality=88)
         o = process_file(jp, _mk_args(base, extend="16"))
         d0, d1 = jpeglib.read_dct(str(jp)), jpeglib.read_dct(str(o))
         okc = bool(np.array_equal(np.asarray(d0.qt), np.asarray(d1.qt)))
-        ext_j = resolve_extents(_mk_args(base, extend="16"),
-                                (d0.width, d0.height), jpeg_mcu(d0), [])
-        for ci, (a0, a1) in enumerate(zip([d0.Y, d0.Cb, d0.Cr],
-                                          [d1.Y, d1.Cb, d1.Cr])):
-            rows, cols, ov, oh = jpeg_paste_box(d0, ci, (d0.width, d0.height),
-                                                ext_j, False)
-            okc &= bool(np.array_equal(
-                a1[rows, cols],
-                a0[rows.start - ov:rows.stop - ov,
-                   cols.start - oh:cols.stop - oh]))
+        ext_j = resolve_extents(
+            _mk_args(base, extend="16"), (d0.width, d0.height), jpeg_mcu(d0), []
+        )
+        for ci, (a0, a1) in enumerate(
+            zip([d0.Y, d0.Cb, d0.Cr], [d1.Y, d1.Cb, d1.Cr], strict=True)
+        ):
+            rows, cols, ov, oh = jpeg_paste_box(
+                d0, ci, (d0.width, d0.height), ext_j, False
+            )
+            okc &= bool(
+                np.array_equal(
+                    a1[rows, cols],
+                    a0[
+                        rows.start - ov : rows.stop - ov,
+                        cols.start - oh : cols.stop - oh,
+                    ],
+                )
+            )
         check("JPEG interior coefficients bit-exact", okc, f"extents {ext_j}")
-        p0 = jpeglib.read_spatial(str(jp)).spatial.astype(np.float32)
-        p1 = jpeglib.read_spatial(str(o)).spatial.astype(np.float32)
-        bmean0 = p0[100:-100, 2:4].mean(axis=(0, 1))   # near the tone anchor
+        p0 = np.asarray(jpeglib.read_spatial(str(jp)).spatial, dtype=np.float32)
+        p1 = np.asarray(jpeglib.read_spatial(str(o)).spatial, dtype=np.float32)
+        # extension tone mirrors across the band -> compare the DETECTED band
+        from .synthesis import Params as _Params
+
+        tj, kj = edge_geometry(np.ascontiguousarray(p0), _Params(sample=base.sample))[
+            :2
+        ]
+        bmean0 = p0[100:-100, tj : tj + kj].mean(axis=(0, 1))
         bmean1 = p1[100:-100, :12].mean(axis=(0, 1))
-        check("JPEG synth border color sane",
-              float(np.abs(bmean0 - bmean1).max()) <= 10.0,
-              f"delta {np.abs(bmean0 - bmean1).max():.1f}")
+        check(
+            "JPEG synth border color sane",
+            float(np.abs(bmean0 - bmean1).max()) <= 10.0,
+            f"delta {np.abs(bmean0 - bmean1).max():.1f}",
+        )
 
         # J2: 4:2:2 JPEG (asymmetric subsampling) — regression for the
         # samp_factor axis order; must not crash and must stay bit-exact
@@ -192,22 +241,36 @@ def selfcheck(args) -> int:
         try:
             o = process_file(jp422, _mk_args(base, extend="16"))
             d0, d1 = jpeglib.read_dct(str(jp422)), jpeglib.read_dct(str(o))
-            ext_j = resolve_extents(_mk_args(base, extend="16"),
-                                    (d0.width, d0.height), jpeg_mcu(d0), [])
+            ext_j = resolve_extents(
+                _mk_args(base, extend="16"), (d0.width, d0.height), jpeg_mcu(d0), []
+            )
             ok422 = True
-            for ci, (a0, a1) in enumerate(zip([d0.Y, d0.Cb, d0.Cr],
-                                              [d1.Y, d1.Cb, d1.Cr])):
+            for ci, (a0, a1) in enumerate(
+                zip([d0.Y, d0.Cb, d0.Cr], [d1.Y, d1.Cb, d1.Cr], strict=True)
+            ):
                 rows, cols, ov, oh = jpeg_paste_box(
-                    d0, ci, (d0.width, d0.height), ext_j, False)
-                ok422 &= bool(np.array_equal(
-                    a1[rows, cols],
-                    a0[rows.start - ov:rows.stop - ov,
-                       cols.start - oh:cols.stop - oh]))
-            check("JPEG 4:2:2 interior coefficients bit-exact", ok422,
-                  f"extents {ext_j}, mcu {jpeg_mcu(d0)}")
+                    d0, ci, (d0.width, d0.height), ext_j, False
+                )
+                ok422 &= bool(
+                    np.array_equal(
+                        a1[rows, cols],
+                        a0[
+                            rows.start - ov : rows.stop - ov,
+                            cols.start - oh : cols.stop - oh,
+                        ],
+                    )
+                )
+            check(
+                "JPEG 4:2:2 interior coefficients bit-exact",
+                ok422,
+                f"extents {ext_j}, mcu {jpeg_mcu(d0)}",
+            )
         except Exception as e:
-            check("JPEG 4:2:2 interior coefficients bit-exact", False,
-                  f"{type(e).__name__}: {e}")
+            check(
+                "JPEG 4:2:2 interior coefficients bit-exact",
+                False,
+                f"{type(e).__name__}: {e}",
+            )
 
         # K: WebP round trip identity
         wp = tmp / "real.webp"
@@ -216,18 +279,25 @@ def selfcheck(args) -> int:
         o = process_file(wp, _mk_args(base, extend="16"))
         outw = np.asarray(Image.open(o).convert("RGB"))
         t = TRIM_CAP
-        check("interior identity WebP",
-              np.array_equal(outw[16 + t:16 + src_w.shape[0] - t,
-                                  16 + t:16 + src_w.shape[1] - t],
-                             src_w[t:-t, t:-t]))
+        check(
+            "interior identity WebP",
+            np.array_equal(
+                outw[
+                    16 + t : 16 + src_w.shape[0] - t, 16 + t : 16 + src_w.shape[1] - t
+                ],
+                src_w[t:-t, t:-t],
+            ),
+        )
     else:
-        console.print("  [yellow](no real PNG input found; "
-                      "skipped scan-based checks)[/]")
+        console.print(
+            "  [yellow](no real PNG input found; skipped scan-based checks)[/]"
+        )
 
     # L: flat border stays clean (both modes)
     for mode in ("smart", "naive"):
-        o = process_file(flat_p, _mk_args(base, extend="16", mode=mode,
-                                          suffix=f"_ext_{mode}"))
+        o = process_file(
+            flat_p, _mk_args(base, extend="16", mode=mode, suffix=f"_ext_{mode}")
+        )
         fa = np.asarray(Image.open(o)).astype(np.int16)
         dev = np.abs(fa[100:-100, :16] - np.array([255, 214, 0])).max()
         check(f"flat border clean ({mode})", dev <= 14, f"max dev {dev}")
@@ -237,19 +307,54 @@ def selfcheck(args) -> int:
     Image.fromarray(bordered(340, 420, (200, 200, 60), (255, 255, 255))).save(wide_p)
     o = process_file(wide_p, _mk_args(base, extend="0", fix_aspect=True))
     w, h = Image.open(o).size
-    check("aspect fill (too wide -> pad height)",
-          w == 340 and h == round(340 * 88 / 63), f"{w}x{h}")
+    check(
+        "aspect fill (too wide -> pad height)",
+        w == 340 and h == round(340 * 88 / 63),
+        f"{w}x{h}",
+    )
 
     # N: speckle statistics on synthetic speckle fixture
     o = process_file(speck_p, _mk_args(base, extend="16"))
     sa = np.asarray(Image.open(o)).astype(np.float32)
     rs = highpass_std(sa[100:-100, :16]).mean()
     rb = highpass_std(sa[100:-100, 16:23]).mean()
-    check("speckle grain reproduced", 0.5 <= rs / max(rb, 1e-6) <= 1.6,
-          f"ratio {rs / max(rb, 1e-6):.2f}")
+    check(
+        "speckle grain reproduced",
+        0.5 <= rs / max(rb, 1e-6) <= 1.6,
+        f"ratio {rs / max(rb, 1e-6):.2f}",
+    )
+
+    # O: pattern mode continues a periodic lattice exactly
+    lat_p = tmp / "lattice.png"
+    la = np.full((420, 300, 3), (60, 110, 120), dtype=np.uint8)
+    yy, xx = np.mgrid[0:420, 0:300]
+    la[(yy % 6 < 2) & (xx % 6 < 2)] = (220, 235, 240)  # 6px dot lattice
+    la[24:-24, 24:-24] = (250, 250, 250)  # plain interior
+    Image.fromarray(la).save(lat_p)
+    o = process_file(
+        lat_p,
+        _mk_args(
+            base,
+            extend="16",
+            mode="pattern",
+            trim="0",
+            noise=0.0,
+            smudge=0.0,
+            suffix="_ext_pat",
+        ),
+    )
+    lo = np.asarray(Image.open(o)).astype(np.int16)[100:-100]
+    dev = 0
+    for x in range(16):
+        j = 16 - x  # distance beyond edge
+        src = 16 + ((-j) % 6)  # periodic source col
+        dev = max(dev, int(np.abs(lo[:, x] - lo[:, src]).max()))
+    check("pattern mode continues lattice", dev <= 4, f"max dev {dev}")
 
     fails = [r for r in results if not r[1]]
     color = "red" if fails else "green"
-    console.print(f"\n[bold {color}]selfcheck: "
-                  f"{len(results) - len(fails)}/{len(results)} passed[/]")
+    console.print(
+        f"\n[bold {color}]selfcheck: "
+        f"{len(results) - len(fails)}/{len(results)} passed[/]"
+    )
     return 1 if fails else 0
