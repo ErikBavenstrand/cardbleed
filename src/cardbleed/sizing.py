@@ -112,21 +112,26 @@ def resolve_extents(
 
     L, T, R, B = aL + eL, aT + eT, aR + eR, aB + eB
 
-    # -- JPEG MCU alignment: shift remainders left->right / top->bottom -----
+    # -- JPEG MCU alignment ---------------------------------------------------
+    # the original blocks can only sit at multiples of the MCU from the
+    # top-left corner, so left/top snap to the NEAREST feasible offset and
+    # the difference moves to the opposite edge, keeping final dimensions
+    # exact
     if mcu is not None:
-        mw, mh = mcu
-        if L % mw:
-            shift = L % mw
-            L, R = L - shift, R + shift
+
+        def align(a: int, b: int, m: int, lo: str, hi: str) -> tuple[int, int]:
+            if a % m == 0:
+                return a, b
+            snapped = round(a / m) * m
+            if snapped > a + b:  # opposite edge cannot absorb the difference
+                snapped = (a // m) * m
             notes.append(
-                f"JPEG alignment: moved {shift}px from left to right "
-                f"edge (left offset must be a multiple of {mw})"
+                f"JPEG alignment: {lo} edge {a}->{snapped}px ({lo} offset "
+                f"must be a multiple of {m}; difference moved to the {hi} "
+                f"edge — use multiples of {m} for symmetric extension)"
             )
-        if T % mh:
-            shift = T % mh
-            T, B = T - shift, B + shift
-            notes.append(
-                f"JPEG alignment: moved {shift}px from top to bottom "
-                f"edge (top offset must be a multiple of {mh})"
-            )
+            return snapped, b + (a - snapped)
+
+        L, R = align(L, R, mcu[0], "left", "right")
+        T, B = align(T, B, mcu[1], "top", "bottom")
     return L, T, R, B
