@@ -230,6 +230,15 @@ click.rich_click.OPTION_GROUPS = {
     "black gap (no-op when an edge has none). [cyan]off[/]: disable.",
 )
 @click.option(
+    "--fill-corners",
+    is_flag=True,
+    default=False,
+    help="Square rounded/ragged corners: fill edge background "
+    "(transparent, black, or white — anything that isn't the border) "
+    "with the nearest border before bleeding. Modifies those "
+    "background pixels; opaque artwork is untouched. png/webp only.",
+)
+@click.option(
     "--halo",
     type=click.Choice(["auto", "overwrite", "blend"]),
     default="auto",

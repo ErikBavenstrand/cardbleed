@@ -12,7 +12,7 @@ from rich.console import Console
 from .errors import FileError
 from .formats import FORMATS, jpeg_mcu, load_pixels, save_jpeg, save_png_webp
 from .sizing import parse_size, resolve_extents
-from .synthesis import TRIM_CAP, Params, extend_image
+from .synthesis import TRIM_CAP, Params, extend_image, square_background
 
 MAGENTA = np.array([255, 0, 255], dtype=np.uint8)
 
@@ -145,6 +145,12 @@ def process_file(
             "halo overwrite on JPEG: the outer block ring is "
             "re-encoded (localized loss inside the border)"
         )
+
+    if args.fill_corners:
+        if fmt == "jpeg":
+            notes.append("fill-corners skipped: JPEG splices original blocks")
+        else:
+            arr = square_background(arr, notes)
 
     rng = np.random.default_rng([args.seed, zlib.crc32(path.name.encode())])
     result = extend_image(arr, extents, p, rng, overwrite, notes)

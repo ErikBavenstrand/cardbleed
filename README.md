@@ -102,6 +102,7 @@ still exactly what you asked for.
 | `--target` | none | Pad to an exact final size instead, e.g. `69x94mm` |
 | `--mode` | `pattern` | `pattern`, `smart`, or `naive` (see above) |
 | `--edge-fill` | `auto` | Continue the border across transparent / rounded-corner / empty edge rows instead of extending the black gap; `off` to disable |
+| `--fill-corners` | off | Square rounded/ragged corners: fill edge background (transparent, black, or white — anything that isn't the border) with the nearest border before bleeding. Modifies those background pixels; opaque artwork is untouched. png/webp only |
 | `-k, --sample` | `12` | Band depth to sample from; clamped at detected inner border structure |
 | `--trim` | `auto` | Scanner-bloom lines to cut per edge |
 | `--shuffle` | `48` | How far along the edge texture may be borrowed from |
@@ -126,6 +127,13 @@ border colour rather than a grown black/transparent corner. It's a no-op on
 edges with no such background, and stands down when an edge is mostly empty
 (nothing to continue). Original pixels are still left untouched — only the
 synthesized bleed is affected.
+
+`--fill-corners` goes one step further and squares the corners themselves: edge
+background (transparent, black, or white — anything reachable from the image
+border that isn't the card) is flooded and filled with the nearest border, so a
+rounded-corner scan becomes a clean rectangle before the bleed is added. Unlike
+the rest of cardbleed it does change those background pixels (opaque artwork is
+never touched); it's opt-in and png/webp only.
 
 ## Development
 
