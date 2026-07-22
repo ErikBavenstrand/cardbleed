@@ -221,6 +221,15 @@ click.rich_click.OPTION_GROUPS = {
     "seeding from rounded/white scan corners).",
 )
 @click.option(
+    "--edge-fill",
+    type=click.Choice(["auto", "off"]),
+    default="auto",
+    show_default=True,
+    help="[cyan]auto[/]: continue the border across transparent / "
+    "rounded-corner / empty edge rows instead of extending the "
+    "black gap (no-op when an edge has none). [cyan]off[/]: disable.",
+)
+@click.option(
     "--halo",
     type=click.Choice(["auto", "overwrite", "blend"]),
     default="auto",

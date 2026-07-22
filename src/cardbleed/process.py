@@ -136,6 +136,7 @@ def process_file(
         seam_feather=args.seam_feather,
         corner_guard=args.corner_guard,
         halo=args.halo,
+        edge_fill=args.edge_fill,
     )
     halo = p.halo if p.halo != "auto" else ("blend" if fmt == "jpeg" else "overwrite")
     overwrite = halo == "overwrite"

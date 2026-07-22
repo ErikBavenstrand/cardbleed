@@ -101,6 +101,7 @@ still exactly what you asked for.
 | `--fix-aspect` | off | Pad the short axis to the card ratio (`--card-size`, default `63x88` mm) before extending |
 | `--target` | none | Pad to an exact final size instead, e.g. `69x94mm` |
 | `--mode` | `pattern` | `pattern`, `smart`, or `naive` (see above) |
+| `--edge-fill` | `auto` | Continue the border across transparent / rounded-corner / empty edge rows instead of extending the black gap; `off` to disable |
 | `-k, --sample` | `12` | Band depth to sample from; clamped at detected inner border structure |
 | `--trim` | `auto` | Scanner-bloom lines to cut per edge |
 | `--shuffle` | `48` | How far along the edge texture may be borrowed from |
@@ -117,6 +118,14 @@ according to the selected mode. Noise matched to the border's measured grain
 and a ramped blur are applied on top. Corners are filled in two passes so
 they inherit synthesized side texture. All randomness ramps in from zero at
 the seam, so the first synthesized line is an exact continuation of the edge.
+
+If a card already has rounded corners, the corner triangles are transparent (or
+black/empty) in the scan. `--edge-fill` (on by default) detects those rows per
+edge and continues the nearest real border across them, so the added bleed is
+border colour rather than a grown black/transparent corner. It's a no-op on
+edges with no such background, and stands down when an edge is mostly empty
+(nothing to continue). Original pixels are still left untouched — only the
+synthesized bleed is affected.
 
 ## Development
 

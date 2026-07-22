@@ -48,6 +48,7 @@ class Params:
     seam_feather: int = 3
     corner_guard: int = 12
     halo: str = "auto"  # auto | overwrite | blend
+    edge_fill: str = "auto"  # auto | off — continue border across bg/rounded corners
 
 
 def edge_geometry(img: np.ndarray, p: Params) -> tuple[int, int, np.ndarray]:
@@ -228,6 +229,51 @@ def _guard_rows(rows: np.ndarray, H: int, G: int) -> np.ndarray:
     return rows
 
 
+# a row is "background" (rounded-corner triangle / empty scan, not real border)
+# if its *seed* columns are transparent, or off-border AND extreme. The test
+# looks at the OUTER columns — the pixels the bleed actually continues from — so
+# a mostly-opaque row with a transparent outer edge still counts.
+_BG_ALPHA = 200.0  # a seed column this transparent is background
+_BG_LUM_DARK, _BG_LUM_BRIGHT = 45.0, 232.0
+_BG_OFF_COLOR = 55.0
+_BG_MIN_BORDER = 0.4  # need this fraction of real-border rows to fill at all
+
+
+def _border_source_map(band: np.ndarray, edge_fill: str) -> np.ndarray | None:
+    """Map every edge row to the nearest *real border* row.
+
+    Background rows — transparent (alpha≈0) or off-border-and-extreme, i.e. the
+    rounded-corner triangles or an empty scan margin — are redirected to the
+    nearest border row so the extension continues the border instead of growing
+    the black/empty corner. Returns None (no remap) when ``edge_fill`` is off,
+    when there's no background, or when the edge is mostly background (nothing
+    to continue — matches "unless the edge is itself empty").
+    """
+    if edge_fill == "off":
+        return None
+    h, k, c = band.shape
+    outer = band[:, : max(1, k // 2)]  # the columns that seed the extension
+    if c in (2, 4):  # alpha present → a transparent seed column is background
+        bg = outer[..., -1].min(axis=1) < _BG_ALPHA
+    else:
+        rgb = outer[..., :3] if c >= 3 else outer
+        lum = rgb.mean(axis=2)
+        med = np.median(band.reshape(-1, c), axis=0)
+        off = np.abs(outer - med).mean(axis=(1, 2))
+        extreme = (lum.min(axis=1) < _BG_LUM_DARK) | (lum.max(axis=1) > _BG_LUM_BRIGHT)
+        bg = extreme & (off > _BG_OFF_COLOR)
+    good = np.flatnonzero(~bg)
+    if good.size == h or good.size < max(8, int(_BG_MIN_BORDER * h)):
+        return None
+    pos = np.searchsorted(good, np.arange(h))
+    left = good[np.clip(pos - 1, 0, good.size - 1)]
+    right = good[np.clip(pos, 0, good.size - 1)]
+    rows = np.arange(h)
+    return np.where(np.abs(rows - left) <= np.abs(right - rows), left, right).astype(
+        np.intp
+    )
+
+
 def synth_left(
     img: np.ndarray,
     n: int,
@@ -251,6 +297,10 @@ def synth_left(
         notes.append(f"auto-trimmed {t}px of scanner bloom")
 
     band = img[:, t : t + K].astype(np.float32)  # depth 0 = outermost clean line
+    src_map = _border_source_map(band, p.edge_fill)
+    if src_map is not None:  # rounded-corner / empty rows continue the border
+        band = band[src_map]
+        notes.append("edge-fill: continued border across background rows")
     n_total = n + (t if overwrite else 0)
 
     j = np.arange(1, n_total + 1, dtype=np.float32)  # 1 = at seam
