@@ -1,8 +1,15 @@
-"""Command-line interface (click + rich-click)."""
+"""Command-line interface (click + rich-click).
+
+Convention: every amount is a single scalar with a unit (``%`` | ``mm`` | ``px``);
+every per-edge quantity is a uniform base flag plus ``-top/-right/-bottom/-left``
+overrides; every toggle is a ``--x/--no-x`` boolean. Nothing takes a packed list.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any
 
 import rich_click as click
 from rich.console import Console
@@ -25,34 +32,53 @@ click.rich_click.STYLE_OPTIONS_TABLE_LEADING = 0
 click.rich_click.OPTION_GROUPS = {
     "*": [
         {
-            "name": "Sizing",
+            "name": "Target & fit",
             "options": [
-                "--extend",
-                "--left",
-                "--right",
-                "--top",
-                "--bottom",
-                "--target",
-                "--fix-aspect",
                 "--card-size",
+                "--border-target",
+                "--border-target-top",
+                "--border-target-right",
+                "--border-target-bottom",
+                "--border-target-left",
+                "--border-current",
+                "--border-current-top",
+                "--border-current-right",
+                "--border-current-bottom",
+                "--border-current-left",
+                "--stretch",
+                "--crop",
+            ],
+        },
+        {
+            "name": "Cut bleed",
+            "options": [
+                "--bleed",
+                "--bleed-top",
+                "--bleed-right",
+                "--bleed-bottom",
+                "--bleed-left",
             ],
         },
         {
             "name": "Synthesis",
             "options": [
                 "--mode",
-                "--sample",
-                "--trim",
-                "--jitter",
-                "--jitter-smooth",
-                "--jitter-cross",
-                "--shuffle",
+                "--seed",
                 "--noise",
                 "--smudge",
-                "--seam-feather",
-                "--corner-guard",
+                "--edge-fill",
+                "--fill-corners",
                 "--halo",
-                "--seed",
+            ],
+        },
+        {
+            "name": "Advanced (fine-tuning — sensible defaults, rarely needed)",
+            "options": [
+                "--jitter",
+                "--shuffle",
+                "--sample",
+                "--trim",
+                "--seam-feather",
             ],
         },
         {
@@ -71,63 +97,138 @@ click.rich_click.OPTION_GROUPS = {
     ]
 }
 
+_EDGES = ("top", "right", "bottom", "left")
+
+
+def _edge_overrides(prefix: str, what: str) -> Callable:
+    """Add ``--<prefix>-<edge>`` scalar overrides for the four edges."""
+
+    def deco(f: Callable) -> Callable:
+        for e in reversed(_EDGES):
+            f = click.option(
+                f"--{prefix}-{e}",
+                default=None,
+                metavar="AMT",
+                help=f"{what}, {e} edge.",
+            )(f)
+        return f
+
+    return deco
+
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.argument("inputs", nargs=-1, metavar="[INPUTS]...")
-# sizing ---------------------------------------------------------------------
-@click.option(
-    "-e",
-    "--extend",
-    default="16",
-    show_default=True,
-    metavar="AMT",
-    help="Border to add per edge: px ([cyan]16[/]) or mm ([cyan]2.5mm[/]).",
-)
-@click.option(
-    "--left",
-    default=None,
-    metavar="AMT",
-    help="Override for the left edge ([cyan]0[/] skips it).",
-)
-@click.option(
-    "--right", default=None, metavar="AMT", help="Override for the right edge."
-)
-@click.option("--top", default=None, metavar="AMT", help="Override for the top edge.")
-@click.option(
-    "--bottom", default=None, metavar="AMT", help="Override for the bottom edge."
-)
-@click.option(
-    "--target",
-    default=None,
-    metavar="WxH",
-    help="Pad (centered) to an exact final size, e.g. "
-    "[cyan]69x94mm[/] or [cyan]440x600[/]; overrides -e.",
-)
-@click.option(
-    "--fix-aspect",
-    is_flag=True,
-    help="First pad the short axis so the image matches the card "
-    "aspect ratio exactly, then add the border.",
-)
+# --- target & fit -----------------------------------------------------------
 @click.option(
     "--card-size",
     default="63x88",
     show_default=True,
     metavar="WxH",
-    help="Physical card size in mm — basis for all mm math "
-    "(embedded file DPI is never trusted).",
+    help="Card trim size in mm — the target aspect + mm basis.",
 )
-# synthesis ------------------------------------------------------------------
+@click.option(
+    "--border-target",
+    default=None,
+    metavar="AMT",
+    help="Intended border, all edges — enables fit (e.g. 5% or 3.15mm).",
+)
+@_edge_overrides("border-target", "Target border override")
+@click.option(
+    "--border-current",
+    default=None,
+    metavar="AMT",
+    help="Where the border sits now, all edges (the marks).",
+)
+@_edge_overrides("border-current", "Measured border")
+@click.option(
+    "--stretch/--no-stretch",
+    default=False,
+    show_default=True,
+    help="Un-distort the art so target borders land exactly (a small resample).",
+)
+@click.option(
+    "--crop/--no-crop",
+    default=True,
+    show_default=True,
+    help="Shave a border that is already thicker than target (never into art).",
+)
+# --- cut bleed --------------------------------------------------------------
+@click.option(
+    "--bleed",
+    default=None,
+    metavar="AMT",
+    help="Trim margin added outside the card, all edges, e.g. [cyan]2.5mm[/].",
+)
+@_edge_overrides("bleed", "Bleed override")
+# --- synthesis --------------------------------------------------------------
 @click.option(
     "--mode",
-    type=click.Choice(["smart", "pattern", "naive"]),
+    type=click.Choice(["pattern", "smart", "naive"]),
     default="pattern",
     show_default=True,
-    help="[cyan]smart[/]: stochastic band resampling · "
-    "[cyan]pattern[/]: structure-preserving randomized-mirror "
-    "continuation (auto-detects repeating patterns and keeps "
-    "them phase-aligned) · [cyan]naive[/]: replicate the "
-    "outermost clean line.",
+    help="How added border pixels are generated. [cyan]pattern[/]: "
+    "structure-preserving continuation · [cyan]smart[/]: stochastic "
+    "resampling · [cyan]naive[/]: replicate the outer line.",
+)
+@click.option(
+    "--seed",
+    type=int,
+    default=0,
+    show_default=True,
+    help="RNG seed (per-file streams derived from filename).",
+)
+@click.option(
+    "--noise",
+    type=float,
+    default=0.35,
+    show_default=True,
+    metavar="F",
+    help="Grain added, as a multiple of the border's own ([cyan]0[/] = off).",
+)
+@click.option(
+    "--smudge",
+    type=float,
+    default=0.6,
+    show_default=True,
+    metavar="SIGMA",
+    help="Gaussian smudge ramped toward the outer edge ([cyan]0[/] = off).",
+)
+@click.option(
+    "--edge-fill",
+    type=click.Choice(["auto", "off"]),
+    default="auto",
+    show_default=True,
+    help="Continue the border across transparent/empty edge rows.",
+)
+@click.option(
+    "--fill-corners",
+    is_flag=True,
+    default=False,
+    help="Square rounded/ragged corners into the border before bleeding "
+    "(fills background pixels; artwork untouched; png/webp only).",
+)
+@click.option(
+    "--halo",
+    type=click.Choice(["auto", "overwrite", "blend"]),
+    default="auto",
+    show_default=True,
+    help="Trimmed-halo handling (jpeg re-encodes the outer ring on overwrite).",
+)
+# --- advanced ---------------------------------------------------------------
+@click.option(
+    "--jitter",
+    type=float,
+    default=0.85,
+    show_default=True,
+    help="0..1 randomness of sampling depth ([cyan]0[/] = plain continuation).",
+)
+@click.option(
+    "--shuffle",
+    type=float,
+    default=48.0,
+    show_default=True,
+    metavar="PX",
+    help="Long-range along-edge texture borrowing.",
 )
 @click.option(
     "-k",
@@ -136,72 +237,14 @@ click.rich_click.OPTION_GROUPS = {
     default=12,
     show_default=True,
     metavar="N",
-    help="How many border pixels to sample patterns/colors from "
-    "(auto-clamped before inner border structure).",
+    help="Border pixels sampled from (auto-clamped before inner structure).",
 )
 @click.option(
     "--trim",
     default="auto",
     show_default=True,
     metavar="auto|N",
-    help="Outermost pixels treated as scanner bloom / cut-line junk: "
-    "excluded from sampling and (png/webp) replaced. "
-    "[cyan]auto[/] detects hard bloom lines per edge (max 3).",
-)
-@click.option(
-    "--jitter",
-    type=float,
-    default=0.85,
-    show_default=True,
-    help="0..1 randomness of the sampling depth "
-    "([cyan]0[/] = plain pattern continuation).",
-)
-@click.option(
-    "--jitter-smooth",
-    type=float,
-    default=1.2,
-    show_default=True,
-    metavar="SIGMA",
-    help="Smoothing of the jitter field; matches speckle grain size "
-    "([cyan]0[/] = per-pixel salt & pepper).",
-)
-@click.option(
-    "--jitter-cross",
-    type=float,
-    default=4.0,
-    show_default=True,
-    metavar="PX",
-    help="Local along-edge wobble of the sampling position; kills "
-    "repeated-fleck trails ([cyan]0[/] = perfectly straight).",
-)
-@click.option(
-    "--shuffle",
-    type=float,
-    default=48.0,
-    show_default=True,
-    metavar="PX",
-    help="Long-range texture borrowing along the edge (smoothed "
-    "patches): holo speckle is drawn from elsewhere on the "
-    "border so patterns never near-repeat in either direction "
-    "([cyan]0[/] = only local wobble).",
-)
-@click.option(
-    "--noise",
-    type=float,
-    default=0.35,
-    show_default=True,
-    metavar="F",
-    help="Added grain as a multiple of the border's own measured "
-    "grain (self-tuning; [cyan]0[/] = off).",
-)
-@click.option(
-    "--smudge",
-    type=float,
-    default=0.6,
-    show_default=True,
-    metavar="SIGMA",
-    help="Gaussian smudge of the new border, ramped toward the "
-    "outer edge ([cyan]0[/] = off).",
+    help="Outermost bloom/junk pixels excluded from sampling.",
 )
 @click.option(
     "--seam-feather",
@@ -211,51 +254,7 @@ click.rich_click.OPTION_GROUPS = {
     metavar="PX",
     help="Pixels over which randomness ramps in from the seam.",
 )
-@click.option(
-    "--corner-guard",
-    type=int,
-    default=12,
-    show_default=True,
-    metavar="PX",
-    help="Keep sampling this far away from image corners (avoids "
-    "seeding from rounded/white scan corners).",
-)
-@click.option(
-    "--edge-fill",
-    type=click.Choice(["auto", "off"]),
-    default="auto",
-    show_default=True,
-    help="[cyan]auto[/]: continue the border across transparent / "
-    "rounded-corner / empty edge rows instead of extending the "
-    "black gap (no-op when an edge has none). [cyan]off[/]: disable.",
-)
-@click.option(
-    "--fill-corners",
-    is_flag=True,
-    default=False,
-    help="Square rounded/ragged corners: fill edge background "
-    "(transparent, black, or white — anything that isn't the border) "
-    "with the nearest border before bleeding. Modifies those "
-    "background pixels; opaque artwork is untouched. png/webp only.",
-)
-@click.option(
-    "--halo",
-    type=click.Choice(["auto", "overwrite", "blend"]),
-    default="auto",
-    show_default=True,
-    help="Trimmed halo ring handling: [cyan]overwrite[/] it "
-    "(png/webp default) or [cyan]blend[/] it out (jpeg "
-    "default; overwrite on jpeg re-encodes the outer "
-    "block ring).",
-)
-@click.option(
-    "--seed",
-    type=int,
-    default=0,
-    show_default=True,
-    help="RNG seed (per-file streams derived from filename).",
-)
-# input/output ---------------------------------------------------------------
+# --- input / output ---------------------------------------------------------
 @click.option(
     "-o",
     "--out-dir",
@@ -272,39 +271,40 @@ click.rich_click.OPTION_GROUPS = {
 @click.option(
     "--compare",
     is_flag=True,
-    help="Also write a QA sheet: original | result | result with "
-    "the original boundary marked.",
+    help="Also write a QA sheet: original | result | result w/ boundary marked.",
 )
 @click.option(
     "--force",
     is_flag=True,
-    help="Overwrite existing output files (inputs are never overwritten).",
+    help="Overwrite existing outputs (inputs are never overwritten).",
 )
 @click.option("--recursive", is_flag=True, help="Descend into subdirectories.")
-@click.option(
-    "--dry-run", is_flag=True, help="Show what would be done without writing anything."
-)
+@click.option("--dry-run", is_flag=True, help="Show what would be done; write nothing.")
 @click.option("--selfcheck", is_flag=True, hidden=True)
 @click.version_option(__version__, "-V", "--version")
 @click.pass_context
-def cli(ctx: click.Context, **kw) -> None:
-    """Extend card scan borders for printing, continuing the existing
-    border pattern (holo speckle, solid colors, ...).
+def cli(ctx: click.Context, **kw: Any) -> None:
+    """Reshape a card scan to a target trim size with correct borders, continuing
+    the existing border pattern (holo speckle, solid colors, ...).
 
-    Original image data is [bold]never re-encoded[/]: PNG/WebP pixels stay
-    bit-identical and JPEG goes through lossless DCT-block surgery.
+    Original image data is [bold]never re-encoded[/] on the extend path: PNG/WebP
+    pixels stay bit-identical, JPEG uses lossless DCT-block surgery. ([cyan]--stretch[/]
+    and shaving an over-target border do resample and are opt-in.)
     INPUTS are image files and/or directories (png/jpg/jpeg/webp).
 
     [dim]Examples:[/]
 
-    [dim]  cardbleed card.png --compare[/]
+    [dim]  cardbleed card.png --bleed 2.5mm[/]
 
-    [dim]  cardbleed ./cards/ -e 2.5mm --fix-aspect[/]
+    [dim]  cardbleed card.png --card-size 63x88 --border-target 5%
+          --border-target-top 3.92% --border-target-bottom 3.92%
+          --border-current-top 2.5% --border-current-right 3%
+          --border-current-bottom 2.4% --border-current-left 3.3% --stretch[/]
     """
     ctx.exit(run(SimpleNamespace(**kw)))
 
 
-def run(args) -> int:
+def run(args: SimpleNamespace) -> int:
     console = Console(highlight=False)
     err = Console(stderr=True, highlight=False)
     if args.selfcheck:
@@ -330,7 +330,7 @@ def run(args) -> int:
         transient=True,
         disable=len(files) < 3 or args.dry_run,
     ) as progress:
-        task = progress.add_task("extending", total=len(files))
+        task = progress.add_task("processing", total=len(files))
         for f in files:
             progress.update(task, description=f.name)
             try:
@@ -339,16 +339,13 @@ def run(args) -> int:
             except FileError as e:
                 err.print(f"[bold cyan]{f.name}[/]: [yellow]SKIPPED[/] — {e}")
                 failed += 1
-            except Exception as e:  # unexpected: report, keep the batch alive
-                err.print(
-                    f"[bold cyan]{f.name}[/]: [bold red]ERROR[/] — "
-                    f"{type(e).__name__}: {e}"
-                )
+            except Exception as e:  # keep the batch alive
+                err.print(f"[bold cyan]{f.name}[/]: [bold red]ERROR[/] — {e!r}")
                 failed += 1
             progress.advance(task)
     if len(files) > 1:
-        parts = [f"[green]{ok} ok[/]"]
-        if failed:
-            parts.append(f"[red]{failed} failed[/]")
+        parts = [f"[green]{ok} ok[/]"] + (
+            [f"[red]{failed} failed[/]"] if failed else []
+        )
         console.print("[bold]done:[/] " + ", ".join(parts))
     return 1 if failed else 0

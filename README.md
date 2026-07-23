@@ -4,17 +4,19 @@
 [![PyPI](https://img.shields.io/pypi/v/cardbleed)](https://pypi.org/project/cardbleed/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Extends the borders of card scans so a printed and cut card doesn't end up
-with a border that is too thin. The extension continues whatever border the
-card already has (holofoil speckle, solid colors, gradients), and the
-original image data is never re-encoded: PNG and WebP pixels stay
-bit-identical, and JPEGs are extended by splicing DCT coefficient blocks
-around the untouched originals.
+Reshapes card scans for printing: it can just add cut **bleed**, or **fit** a
+scan to an exact card trim size (e.g. 63×88 mm) with the borders each set to
+their intended width. Any area it adds continues whatever border the card
+already has (holofoil speckle, solid colors, gradients). On the extend path the
+original image data is never re-encoded — PNG/WebP pixels stay bit-identical and
+JPEGs are extended by splicing DCT coefficient blocks around the untouched
+originals. (`--stretch` and shaving an over-target border resample the art and
+are opt-in.)
 
 <table>
 <tr>
 <td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card.png" width="180"><br><sub>input, 400×550</sub></td>
-<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_pattern.png" width="200"><br><sub>output, <code>cardbleed demo_card.png -e 24</code></sub></td>
+<td align="center"><img src="https://raw.githubusercontent.com/ErikBavenstrand/cardbleed/main/examples/demo_card_pattern.png" width="200"><br><sub>output, <code>cardbleed demo_card.png --bleed 24</code></sub></td>
 </tr>
 </table>
 
@@ -38,16 +40,34 @@ Until the first PyPI release, install from GitHub instead:
 ## Usage
 
 ```bash
-cardbleed card.png --compare              # extend 16px, write a comparison sheet
-cardbleed ./cards/ -e 2.5mm --recursive   # batch a folder, mm-based sizing
-cardbleed card.jpg -e 20 --fix-aspect     # pad to the 63x88 ratio, then extend
-cardbleed card.png --target 69x94mm       # pad to an exact final size
+# just add 2.5 mm of cut bleed on every edge
+cardbleed card.png --bleed 2.5mm
+
+# fit a scan to 63×88 with 5% side / 3.92% top-bottom borders, given where the
+# border currently sits (the marks); --stretch makes the borders land exactly
+cardbleed card.png --card-size 63x88 \
+    --border-target 5% --border-target-top 3.92% --border-target-bottom 3.92% \
+    --border-current-top 2.5% --border-current-right 3% \
+    --border-current-bottom 2.4% --border-current-left 3.3% --stretch
 ```
 
-Outputs are written next to the input (or to `--out-dir`) with an `_ext`
-suffix. Inputs are never overwritten. `--compare` also writes a side-by-side
-sheet with the original boundary marked, which makes it easy to check the
-seam.
+Every amount is a single scalar with a unit — `5%`, `2.5mm`, or `18px`. Every
+per-edge quantity (`--border-target`, `--border-current`, `--bleed`) is a
+uniform base plus `-top/-right/-bottom/-left` overrides; no option ever takes a
+packed list. Outputs are written next to the input (or to `--out-dir`) with an
+`_ext` suffix; inputs are never overwritten.
+
+## Fit
+
+With `--border-target` and `--border-current`, cardbleed reshapes the scan so
+the **outer trim is exactly the card aspect** while the borders land as close as
+possible to target. It solves for the one degree of freedom (the card scale)
+that minimizes the border error, grows each edge toward its own target (a
+cropped edge takes more), and shaves an over-target border if `--crop` is on.
+When the art itself is slightly off-aspect it can't hit every target exactly
+without distortion — `--stretch` opts into a small resample that then lands
+every border exactly. The card size and border spec are always inputs;
+cardbleed stores nothing card-specific.
 
 ## Modes
 
@@ -97,17 +117,44 @@ still exactly what you asked for.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `-e, --extend` | `16` | Amount per edge, px or mm (`2.5mm`); per-edge overrides via `--left` etc. |
-| `--fix-aspect` | off | Pad the short axis to the card ratio (`--card-size`, default `63x88` mm) before extending |
-| `--target` | none | Pad to an exact final size instead, e.g. `69x94mm` |
+| `--card-size` | `63x88` | Card trim size in mm — the target aspect + mm basis |
+| `--border-target` | none | Intended border, all edges (enables fit); `-top/-right/-bottom/-left` override |
+| `--border-current` | none | Where the border sits now (the marks); per-edge overrides |
+| `--stretch` | off | Un-distort the art so target borders land exactly (small resample) |
+| `--crop` | on | Shave a border already thicker than target (never into artwork) |
+| `--bleed` | none | Cut margin added outside the card, all edges; per-edge overrides |
 | `--mode` | `pattern` | `pattern`, `smart`, or `naive` (see above) |
-| `--edge-fill` | `auto` | Continue the border across transparent / rounded-corner / empty edge rows instead of extending the black gap; `off` to disable |
-| `--fill-corners` | off | Square rounded/ragged corners: fill edge background (transparent, black, or white — anything that isn't the border) with the nearest border before bleeding. Modifies those background pixels; opaque artwork is untouched. png/webp only |
-| `-k, --sample` | `12` | Band depth to sample from; clamped at detected inner border structure |
-| `--trim` | `auto` | Scanner-bloom lines to cut per edge |
-| `--shuffle` | `48` | How far along the edge texture may be borrowed from |
+| `--edge-fill` | `auto` | Continue the border across transparent / rounded-corner / empty edge rows; `off` to disable |
+| `--fill-corners` | off | Square rounded/ragged corners: fill edge background (transparent/black/white) with the nearest border. png/webp only |
 | `--noise`, `--smudge` | `0.35`, `0.6` | Added grain (relative to the border's own) and ramped blur |
 | `--seed` | `0` | Output is deterministic per file |
+
+Fine synthesis knobs (`--jitter`, `--shuffle`, `--sample`, `--trim`,
+`--seam-feather`) live under **Advanced** in `--help`.
+
+## Python API
+
+The CLI is a thin wrapper over `bleed_card`, which reshapes in-process:
+
+```python
+from cardbleed import bleed_card, Edges
+
+bleed_card(
+    "card.png", "out.png",
+    card_size=(63, 88),
+    border_target=Edges.symmetric(vertical="3.92%", horizontal="5%"),
+    border_current=Edges(top="2.5%", right="3%", bottom="2.4%", left="3.3%"),
+    stretch=True,
+    bleed="2.5mm",
+)
+```
+
+## Migrating from 0.3
+
+0.4 is a breaking release. `--extend` → **`--bleed`**; the old `--left/--right/
+--top/--bottom`, `--target`, `--fix-aspect`, and `--corner-guard` are removed —
+use `--bleed`/`--border-target` with the `-top/-right/-bottom/-left` overrides,
+and the new `--border-current` + `--card-size` fit for aspect correction.
 
 ## How it works
 
